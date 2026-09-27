@@ -116,7 +116,8 @@ export function AiBatchModal({ decks, isOpen, onClose, onSuccess }: Props) {
         {
           text: inputText.slice(0, 35000).trim(),
           deck_id: selectedDeckId,
-        }
+        },
+        90000
       );
 
       if (res.cards && res.cards.length > 0) {

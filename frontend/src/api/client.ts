@@ -71,7 +71,7 @@ export function getApiKey(): string {
   return 'mi-clave-secreta-123';
 }
 
-async function fetchWithRetry(path: string, options: RequestInit = {}): Promise<Response> {
+async function fetchWithRetry(path: string, options: RequestInit = {}, timeoutMs: number = 6000): Promise<Response> {
   const baseUrl = getBaseUrl();
   const url = `${baseUrl}${path}`;
   const apiKey = getApiKey();
@@ -82,10 +82,10 @@ async function fetchWithRetry(path: string, options: RequestInit = {}): Promise<
     headers.set('X-API-Key', apiKey);
   }
 
-  // Timeout de 6 segundos para no colgar la UI si la laptop o Tailscale están apagados
+  // Timeout para no colgar la UI si la laptop o Tailscale están apagados
   let signal = options.signal;
   if (!signal && typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
-    signal = AbortSignal.timeout(6000);
+    signal = AbortSignal.timeout(timeoutMs);
   }
 
   let res: Response;
@@ -135,11 +135,15 @@ export async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetchWithRetry(path, {
-    method: 'POST',
-    body: body ? JSON.stringify(body) : undefined,
-  });
+export async function post<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+  const res = await fetchWithRetry(
+    path,
+    {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+    },
+    timeoutMs
+  );
   return res.json();
 }
 

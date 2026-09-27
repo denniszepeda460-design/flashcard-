@@ -231,7 +231,8 @@ export function CsvImportModal({ decks, isOpen, onClose, onSuccess }: Props) {
         {
           text: rawText.slice(0, 35000),
           deck_id: targetDeck,
-        }
+        },
+        90000
       );
 
       if (res.cards && res.cards.length > 0) {
