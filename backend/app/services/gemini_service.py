@@ -10,32 +10,45 @@ from app.services.edge_tts_service import (
     get_recommended_voice,
 )
 
-DEFAULT_GEMINI_API_KEYS = [
-    "AIzaSyCcubEdOhK8DfITp0kTZRZr79vNACxeClw",
-    "AIzaSyDTgUnZ2RT8YYjGY17lSFijI7Ip7STK0JM",
-    "AIzaSyAyC_ci81MiIMIKJX77UwrLN-A0IM6fHd0",
-    "AIzaSyDA-zTXxqJCXWsuVhKJ2uGB8CqlRjZ9PMI",
-    "AIzaSyDr0usg7BWq_-MYWbtj-55RrdhiRaS9Sv0",
-    "AIzaSyAliXIA_tl5Qgz3JmO7A-lVK7ZomSHDX4w",
-]
+_env_loaded_from_disk = False
+
+def _ensure_env_loaded() -> None:
+    global _env_loaded_from_disk
+    if not _env_loaded_from_disk:
+        _env_loaded_from_disk = True
+        try:
+            from dotenv import load_dotenv
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            root_env = os.path.join(backend_dir, "..", ".env")
+            backend_env = os.path.join(backend_dir, ".env")
+            if os.path.exists(root_env):
+                load_dotenv(root_env)
+            if os.path.exists(backend_env):
+                load_dotenv(backend_env, override=True)
+            load_dotenv()
+        except Exception:
+            pass
 
 def load_gemini_keys() -> List[str]:
+    _ensure_env_loaded()
     env_keys_raw = os.getenv("GEMINI_API_KEYS", "")
-    if env_keys_raw:
-        if env_keys_raw.strip().startswith("["):
-            try:
-                parsed = json.loads(env_keys_raw)
-                keys = [str(k).strip() for k in parsed if str(k).strip()]
-            except Exception:
-                keys = [k.strip() for k in env_keys_raw.split(",") if k.strip()]
-        else:
+    if not env_keys_raw:
+        return []
+
+    if env_keys_raw.strip().startswith("["):
+        try:
+            parsed = json.loads(env_keys_raw)
+            keys = [str(k).strip() for k in parsed if str(k).strip()]
+        except Exception:
             keys = [k.strip() for k in env_keys_raw.split(",") if k.strip()]
     else:
-        keys = list(DEFAULT_GEMINI_API_KEYS)
+        keys = [k.strip() for k in env_keys_raw.split(",") if k.strip()]
 
-    # Solo conservar claves de AI Studio válidas con formato estándar
-    valid_keys = [k for k in keys if k.startswith("AIzaSy") and len(k) > 20]
-    return valid_keys if valid_keys else DEFAULT_GEMINI_API_KEYS
+    # Conservar claves válidas de Google AI Studio (formato clásico AIzaSy o nuevo AQ.)
+    return [
+        k for k in keys
+        if len(k) > 20 and (k.startswith("AIzaSy") or k.startswith("AQ."))
+    ]
 
 class GeminiKeyRotator:
     def __init__(self, keys: List[str]):
@@ -55,6 +68,43 @@ class GeminiKeyRotator:
         return self.get_current_key()
 
 rotator = GeminiKeyRotator(load_gemini_keys())
+
+# --- CONFIGURACIÓN Y ROTADOR DE RESPALDO: GROQ ---
+def load_groq_keys() -> List[str]:
+    _ensure_env_loaded()
+    env_keys_raw = os.getenv("GROQ_API_KEYS", "")
+    if not env_keys_raw:
+        return []
+
+    if env_keys_raw.strip().startswith("["):
+        try:
+            parsed = json.loads(env_keys_raw)
+            keys = [str(k).strip() for k in parsed if str(k).strip()]
+        except Exception:
+            keys = [k.strip() for k in env_keys_raw.split(",") if k.strip()]
+    else:
+        keys = [k.strip() for k in env_keys_raw.split(",") if k.strip()]
+
+    return [k for k in keys if len(k) > 20 and k.startswith("gsk_")]
+
+class GroqKeyRotator:
+    def __init__(self, keys: List[str]):
+        self.keys = keys
+        self.current_index = 0
+
+    def get_current_key(self) -> str:
+        if not self.keys:
+            raise RuntimeError("No hay claves de API de Groq configuradas.")
+        return self.keys[self.current_index % len(self.keys)]
+
+    def rotate_key(self) -> str:
+        if not self.keys:
+            raise RuntimeError("No hay claves de API de Groq configuradas.")
+        self.current_index = (self.current_index + 1) % len(self.keys)
+        print(f"[GroqRotator] Rotando a API Key #{self.current_index + 1} de {len(self.keys)}")
+        return self.get_current_key()
+
+groq_rotator = GroqKeyRotator(load_groq_keys())
 
 def _normalize_cards(cards_raw: Any) -> List[Dict[str, Any]]:
     """
@@ -259,9 +309,13 @@ def generate_flashcards_with_ai(text: str, card_mode: Optional[str] = None) -> L
         "}"
     )
 
+    if not rotator.keys:
+        print("[GeminiRotator] No hay claves de Gemini disponibles. Activando de inmediato el respaldo de Groq...")
+        return generate_flashcards_with_groq(text, system_prompt)
+
     models_to_try = ["gemini-2.5-flash", "gemini-flash-latest"]
     total_keys = len(rotator.keys)
-    max_attempts = total_keys * len(models_to_try) * 2
+    max_attempts = total_keys * len(models_to_try)
     attempts = 0
     last_error = ""
 
@@ -334,4 +388,87 @@ def generate_flashcards_with_ai(text: str, card_mode: Optional[str] = None) -> L
             rotator.rotate_key()
             attempts += 1
 
-    raise Exception(f"Se agotaron los intentos con las claves de Gemini disponibles. Último error: {last_error}")
+    # Si todas las claves e intentos de Gemini fallan o se agotan, activar automáticamente Groq
+    print(f"[GeminiRotator] Se agotaron todas las claves o intentos de Gemini ({last_error}). Conmutando automáticamente al respaldo con Groq...")
+    try:
+        return generate_flashcards_with_groq(text, system_prompt)
+    except Exception as groq_err:
+        raise Exception(f"Falla en generación: Gemini agotó cuota/intentos ({last_error}) y el respaldo Groq falló ({groq_err})")
+
+
+def generate_flashcards_with_groq(text: str, system_prompt: str) -> List[Dict[str, Any]]:
+    """
+    Generador de respaldo de ultra alta velocidad utilizando Groq.
+    Se activa automáticamente cuando todas las claves de Gemini se agotan.
+    Soporta rotación de claves Groq y normalización pedagógica completa (Edge-TTS).
+    """
+    models_to_try = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    total_keys = len(groq_rotator.keys)
+    max_attempts = total_keys * len(models_to_try)
+    attempts = 0
+    last_error = ""
+
+    print(f"[GroqRotator] Iniciando respaldo con Groq ({total_keys} claves configuradas)...")
+
+    while attempts < max_attempts:
+        api_key = groq_rotator.get_current_key()
+        model_name = models_to_try[attempts % len(models_to_try)]
+        url = "https://api.groq.com/openai/v1/chat/completions"
+
+        payload = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Texto del usuario para generar flashcards:\n\"\"\"\n{text[:40000]}\n\"\"\""}
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"}
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "FlashcardApp/1.0"
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=40) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                choices = res_data.get("choices", [])
+                if not choices:
+                    raise Exception("No se recibieron opciones de Groq")
+
+                raw_text = choices[0]["message"]["content"].strip()
+                if raw_text.startswith("```json"):
+                    raw_text = raw_text[7:]
+                if raw_text.startswith("```"):
+                    raw_text = raw_text[3:]
+                if raw_text.endswith("```"):
+                    raw_text = raw_text[:-3]
+
+                parsed = json.loads(raw_text.strip())
+                cards = _normalize_cards(parsed)
+                print(f"[GroqRotator] ¡Respaldo exitoso! Generadas {len(cards)} flashcards con Groq Key #{groq_rotator.current_index + 1} usando {model_name}")
+                return cards
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="ignore")
+            last_error = f"HTTP {e.code}: {error_body[:150]}"
+            print(f"[GroqRotator] Error HTTP {e.code} con key #{groq_rotator.current_index + 1} ({model_name}): {error_body[:120]}")
+            groq_rotator.rotate_key()
+            if e.code == 429:
+                time.sleep(0.5)
+            attempts += 1
+
+        except Exception as e:
+            last_error = str(e)
+            print(f"[GroqRotator] Excepción con key #{groq_rotator.current_index + 1}: {e}")
+            groq_rotator.rotate_key()
+            attempts += 1
+
+    raise Exception(f"Se agotaron todos los intentos con las claves de Groq. Último error: {last_error}")

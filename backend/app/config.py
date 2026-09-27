@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     environment: str = "development"
     cors_origins: str = ""
 
+    # Gemini AI
+    gemini_api_keys: str = ""
+    # Groq AI (Fallback)
+    groq_api_keys: str = ""
+
     model_config = SettingsConfigDict(
         env_file=("../.env", ".env"),
         extra="ignore",
@@ -54,6 +59,8 @@ class Settings(BaseSettings):
             "SYNC_PORT": "sync_port",
             "ENVIRONMENT": "environment",
             "CORS_ORIGINS": "cors_origins",
+            "GEMINI_API_KEYS": "gemini_api_keys",
+            "GROQ_API_KEYS": "groq_api_keys",
         }
         for env_name, field_name in env_map.items():
             env_val = os.environ.get(env_name)
