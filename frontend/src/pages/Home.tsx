@@ -3,10 +3,8 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { fetchDecks, createDeck } from '../api/decks';
-import { fetchTodayStats } from '../api/stats';
-import { DeckInfo, TodayStats } from '../api/types';
-import { cacheDecks, getCachedDecks } from '../lib/db';
+import { DeckInfo } from '../api/types';
+import { useDeckStore } from '../stores/deckStore';
 import { hasValidSessionForToday, downloadTodaySession } from '../lib/offlineSession';
 import { StudyCalendar } from '../components/deck/StudyCalendar';
 import { DeckCharts } from '../components/deck/DeckCharts';
@@ -28,8 +26,7 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
-  const [decks, setDecks] = useState<DeckInfo[]>([]);
-  const [stats, setStats] = useState<TodayStats | null>(null);
+  const { decks, stats, isLoadingDecks, loadDecksAndStats } = useDeckStore();
 
   // Modals state
   const [showNewDeckModal, setShowNewDeckModal] = useState(false);
@@ -43,43 +40,18 @@ export default function Home() {
   // Tab: 'mazos' | 'progreso'
   const [activeTab, setActiveTab] = useState<'mazos' | 'progreso'>('mazos');
 
-  const loadData = async () => {
-    try {
-      const freshDecks = await fetchDecks();
-      setDecks(freshDecks);
-      await cacheDecks(freshDecks);
-
-      // Descargar sesión completa para hoy en segundo plano si aún no se tiene
-      hasValidSessionForToday().then((valid) => {
-        if (!valid) {
-          downloadTodaySession().catch((err) =>
-            console.warn('[Home] Descarga automática de todaySession en segundo plano falló:', err)
-          );
-        }
-      });
-    } catch (err) {
-      console.warn('Servidor inaccesible, cargando mazos desde IndexedDB...', err);
-      try {
-        const cached = await getCachedDecks();
-        if (cached && cached.length > 0) {
-          setDecks(cached);
-        }
-      } catch (cacheErr) {
-        console.error('Error cargando mazos de IndexedDB:', cacheErr);
-      }
-    }
-
-    try {
-      const freshStats = await fetchTodayStats();
-      setStats(freshStats);
-    } catch {
-      // Estadísticas no disponibles offline
-    }
-  };
-
   useEffect(() => {
-    loadData();
-  }, []);
+    loadDecksAndStats();
+
+    // Descargar sesión completa para hoy en segundo plano si aún no se tiene
+    hasValidSessionForToday().then((valid) => {
+      if (!valid) {
+        downloadTodaySession().catch((err) =>
+          console.warn('[Home] Descarga automática de todaySession en segundo plano falló:', err)
+        );
+      }
+    });
+  }, [loadDecksAndStats]);
 
   const handleCreateDeck = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,10 +59,9 @@ export default function Home() {
 
     setIsCreating(true);
     try {
-      await createDeck(newDeckName.trim());
+      await useDeckStore.getState().createDeck(newDeckName.trim());
       setNewDeckName('');
       setShowNewDeckModal(false);
-      loadData();
     } catch (err) {
       alert('Error creando mazo: ' + err);
     } finally {
@@ -266,7 +237,13 @@ export default function Home() {
               );
             })}
 
-            {decks.length === 0 && (
+            {isLoadingDecks && decks.length === 0 && (
+              <div className="col-span-full text-center py-14 px-4 text-xs font-medium text-stone-400 dark:text-zinc-500 animate-pulse">
+                Cargando mazos...
+              </div>
+            )}
+
+            {!isLoadingDecks && decks.length === 0 && (
               <div className="col-span-full text-center py-14 px-4 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl space-y-3">
                 <FolderOpen className="h-8 w-8 mx-auto text-stone-300 dark:text-zinc-600" />
                 <div className="space-y-1">
@@ -354,7 +331,7 @@ export default function Home() {
         decks={decks}
         isOpen={showCsvModal}
         onClose={() => setShowCsvModal(false)}
-        onSuccess={loadData}
+        onSuccess={loadDecksAndStats}
       />
 
       {/* AI Batch Modal */}
@@ -362,7 +339,7 @@ export default function Home() {
         decks={decks}
         isOpen={showAiModal}
         onClose={() => setShowAiModal(false)}
-        onSuccess={loadData}
+        onSuccess={loadDecksAndStats}
       />
 
       {/* Edit Deck & Cards Modal */}
@@ -370,7 +347,7 @@ export default function Home() {
         deck={editingDeck}
         isOpen={!!editingDeck}
         onClose={() => setEditingDeck(null)}
-        onSuccess={loadData}
+        onSuccess={loadDecksAndStats}
         onDeleteRequested={(deck) => {
           setEditingDeck(null);
           setDeletingDeck(deck);
@@ -382,7 +359,7 @@ export default function Home() {
         deck={deletingDeck}
         isOpen={!!deletingDeck}
         onClose={() => setDeletingDeck(null)}
-        onSuccess={loadData}
+        onSuccess={loadDecksAndStats}
       />
     </div>
   );

@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
-import { fetchDecks } from '../api/decks';
 import { DeckInfo } from '../api/types';
 import { getCachedDecks } from '../lib/db';
+import { useDeckStore } from '../stores/deckStore';
 import { EditDeckModal } from '../components/deck/EditDeckModal';
 import { DeleteDeckModal } from '../components/deck/DeleteDeckModal';
 import { Play, Plus, Search, Trash2, ArrowLeft, Layers, Edit2 } from 'lucide-react';
@@ -14,25 +14,40 @@ export default function DeckView() {
   const navigate = useNavigate();
   const numericDeckId = deckId ? parseInt(deckId, 10) : 0;
 
+  const { decks, loadDecksAndStats } = useDeckStore();
   const [deck, setDeck] = useState<DeckInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const loadDeck = async () => {
-    try {
-      const decks = await fetchDecks();
-      const found = decks.find((d) => d.id === numericDeckId);
-      setDeck(found || null);
-    } catch (err) {
-      console.warn('Servidor inaccesible, buscando mazo en IndexedDB...', err);
+    // 1. Mostrar de inmediato si ya está en el store o en IndexedDB (sin esperar 6s de red)
+    const inStore = useDeckStore.getState().decks.find((d) => d.id === numericDeckId);
+    if (inStore) {
+      setDeck(inStore);
+      setIsLoading(false);
+    } else {
       try {
         const cached = await getCachedDecks();
         const found = cached.find((d) => d.id === numericDeckId);
-        setDeck(found || null);
+        if (found) {
+          setDeck(found);
+          setIsLoading(false);
+        }
       } catch (cacheErr) {
-        console.error('Error buscando mazo en IndexedDB:', cacheErr);
+        console.warn('[DeckView] Error buscando mazo en IndexedDB:', cacheErr);
       }
+    }
+
+    // 2. Refrescar en segundo plano con el store unificado
+    try {
+      await loadDecksAndStats();
+      const updated = useDeckStore.getState().decks.find((d) => d.id === numericDeckId);
+      if (updated) {
+        setDeck(updated);
+      }
+    } catch (err) {
+      console.warn('[DeckView] Servidor inaccesible, conservando mazo en memoria/IndexedDB');
     } finally {
       setIsLoading(false);
     }

@@ -1,19 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Card } from '../components/ui/Card';
-import { fetchTodayStats } from '../api/stats';
-import { TodayStats } from '../api/types';
+import { useDeckStore } from '../stores/deckStore';
 import { Flame, CheckCircle2, TrendingUp, Sparkles, BookOpen } from 'lucide-react';
 
 export default function StatsPage() {
-  const [stats, setStats] = useState<TodayStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { stats, isLoadingStats, loadDecksAndStats } = useDeckStore();
 
   useEffect(() => {
-    fetchTodayStats()
-      .then(setStats)
-      .catch(console.error)
-      .finally(() => setIsLoading(false));
-  }, []);
+    loadDecksAndStats();
+  }, [loadDecksAndStats]);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-12">
@@ -26,7 +21,7 @@ export default function StatsPage() {
         </p>
       </div>
 
-      {isLoading && (
+      {isLoadingStats && !stats && (
         <div className="text-center py-12 text-stone-400 dark:text-zinc-500 text-xs">Cargando estadísticas...</div>
       )}
 

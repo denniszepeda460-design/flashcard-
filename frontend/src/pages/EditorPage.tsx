@@ -3,9 +3,8 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { fetchDecks } from '../api/decks';
 import { createNote, getNote, updateNote } from '../api/notes';
-import { DeckInfo } from '../api/types';
+import { useDeckStore } from '../stores/deckStore';
 import { Check, ArrowLeft, Plus, Trash2, Layers, Volume2 } from 'lucide-react';
 import { useTTS } from '../hooks/useTTS';
 
@@ -29,7 +28,7 @@ export default function EditorPage() {
   const isEditing = Boolean(noteId);
   const initialDeckId = searchParams.get('deckId') ? parseInt(searchParams.get('deckId')!, 10) : 0;
 
-  const [decks, setDecks] = useState<DeckInfo[]>([]);
+  const { decks, loadDecksAndStats } = useDeckStore();
   const [selectedDeckId, setSelectedDeckId] = useState<number>(initialDeckId);
   const [selectedType, setSelectedType] = useState<string>('Basic');
 
@@ -51,15 +50,14 @@ export default function EditorPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    fetchDecks()
-      .then((d) => {
-        setDecks(d);
-        if (!selectedDeckId && d.length > 0) {
-          setSelectedDeckId(d[0].id);
-        }
-      })
-      .catch((err) => console.error('Error cargando mazos:', err));
-  }, []);
+    loadDecksAndStats();
+  }, [loadDecksAndStats]);
+
+  useEffect(() => {
+    if (!selectedDeckId && decks.length > 0) {
+      setSelectedDeckId(decks[0].id);
+    }
+  }, [decks, selectedDeckId]);
 
   useEffect(() => {
     if (noteId) {

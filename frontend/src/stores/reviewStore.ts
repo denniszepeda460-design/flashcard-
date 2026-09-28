@@ -15,6 +15,7 @@ import {
   clearSession,
   prepareOfflineCards,
 } from '../lib/offlineSession';
+import { useDeckStore } from './deckStore';
 
 interface ReviewState {
   cards: CardForReview[];
@@ -187,6 +188,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         rating,
         timestamp: Date.now(),
       });
+      useDeckStore.getState().refreshPendingAdjustments().catch(() => {});
       return;
     }
 
@@ -200,6 +202,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           rating,
           timestamp: Date.now(),
         });
+        useDeckStore.getState().refreshPendingAdjustments().catch(() => {});
       } catch (err) {
         console.error('Failed to enqueue offline review:', err);
       }

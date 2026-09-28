@@ -5,22 +5,22 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Search, Trash2, Edit3, Plus, BookOpen } from 'lucide-react';
 import { searchNotes, deleteNote } from '../api/notes';
-import { fetchDecks } from '../api/decks';
-import { NoteInfo, DeckInfo } from '../api/types';
+import { NoteInfo } from '../api/types';
+import { useDeckStore } from '../stores/deckStore';
 
 export default function BrowserPage() {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [selectedDeckId, setSelectedDeckId] = useState<number | undefined>(undefined);
-  const [decks, setDecks] = useState<DeckInfo[]>([]);
+  const { decks, loadDecksAndStats } = useDeckStore();
   const [notes, setNotes] = useState<NoteInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetchDecks().then(setDecks).catch(console.error);
-  }, []);
+    loadDecksAndStats();
+  }, [loadDecksAndStats]);
 
   const loadNotes = useCallback(async () => {
     setIsLoading(true);

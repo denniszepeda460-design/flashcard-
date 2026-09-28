@@ -10,6 +10,8 @@ import {
   getSyncMeta,
 } from '../lib/db';
 import { useOfflineStore } from '../stores/offlineStore';
+import { clearBackendUnreachable } from '../api/client';
+import { useDeckStore } from '../stores/deckStore';
 
 export type SyncState = 'idle' | 'syncing' | 'success' | 'error';
 
@@ -34,6 +36,9 @@ export function useSync() {
 
   const performSync = useCallback(async () => {
     if (isSyncingRef.current || !navigator.onLine) return;
+    // Limpiar el cooldown de conexión para permitir un intento real
+    clearBackendUnreachable();
+
     isSyncingRef.current = true;
     setStatus('syncing');
     setErrorMessage(null);
@@ -53,6 +58,9 @@ export function useSync() {
       const freshDecks = await fetchDecks();
       await cacheDecks(freshDecks);
 
+      // Actualizar el store global de mazos y estadísticas
+      await useDeckStore.getState().loadDecksAndStats();
+
       const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setLastSyncTime(nowStr);
       await setSyncMeta({ lastSync: nowStr });
@@ -63,6 +71,8 @@ export function useSync() {
       console.error('Error durante sincronización:', err);
       setStatus('error');
       setErrorMessage(err.message || 'Error de sincronización');
+      // Auto-restaurar estado a 'idle' tras 4 segundos para no dejar el botón en rojo permanentemente
+      setTimeout(() => setStatus('idle'), 4000);
     } finally {
       isSyncingRef.current = false;
     }

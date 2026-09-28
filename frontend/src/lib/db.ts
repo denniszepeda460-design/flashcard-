@@ -1,5 +1,5 @@
 import { openDB as idbOpenDB, DBSchema, IDBPDatabase } from 'idb';
-import { DeckInfo, CardForReview } from '../api/types';
+import { DeckInfo, CardForReview, TodayStats } from '../api/types';
 import { answerCard } from '../api/review';
 
 export interface PendingReview {
@@ -232,4 +232,36 @@ export async function getCachedMedia(filename: string): Promise<CachedMediaItem 
 export async function clearMediaCacheDB(): Promise<void> {
   const db = await openDB();
   await db.clear('mediaCache');
+}
+
+// Helpers para todayStats
+export interface CachedStatsData {
+  stats: TodayStats;
+  savedAt: number;
+  dateStr: string;
+}
+
+export async function cacheTodayStats(stats: TodayStats): Promise<void> {
+  try {
+    const db = await openDB();
+    const data: CachedStatsData = {
+      stats,
+      savedAt: Date.now(),
+      dateStr: new Date().toISOString().split('T')[0],
+    };
+    await db.put('syncMeta', data, 'todayStats');
+  } catch (err) {
+    console.warn('[DB] Error guardando estadísticas en caché:', err);
+  }
+}
+
+export async function getCachedTodayStats(): Promise<TodayStats | null> {
+  try {
+    const db = await openDB();
+    const data = await db.get('syncMeta', 'todayStats');
+    return data?.stats || null;
+  } catch (err) {
+    console.warn('[DB] Error leyendo estadísticas de caché:', err);
+    return null;
+  }
 }

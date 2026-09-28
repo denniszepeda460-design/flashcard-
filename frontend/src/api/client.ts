@@ -71,7 +71,31 @@ export function getApiKey(): string {
   return 'mi-clave-secreta-123';
 }
 
+let backendUnreachableUntil = 0;
+
+export function markBackendUnreachable(durationMs: number = 30000) {
+  backendUnreachableUntil = Date.now() + durationMs;
+}
+
+export function clearBackendUnreachable() {
+  backendUnreachableUntil = 0;
+}
+
+export function isBackendUnreachable(): boolean {
+  return Date.now() < backendUnreachableUntil;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', clearBackendUnreachable);
+}
+
 async function fetchWithRetry(path: string, options: RequestInit = {}, timeoutMs: number = 6000): Promise<Response> {
+  // Fast-fail: Si el backend falló recientemente y estamos dentro del cooldown de 30s,
+  // fallar de inmediato para endpoints estándar sin esperar 6 segundos adicionales.
+  if (isBackendUnreachable() && timeoutMs < 30000) {
+    throw new ApiError(0, 'Servidor inaccesible recientemente (cooldown de 30s activo).');
+  }
+
   const baseUrl = getBaseUrl();
   const url = `${baseUrl}${path}`;
   const apiKey = getApiKey();
@@ -91,11 +115,27 @@ async function fetchWithRetry(path: string, options: RequestInit = {}, timeoutMs
   let res: Response;
   try {
     res = await fetch(url, { ...options, headers, signal });
+    // Si la llamada tuvo éxito a nivel de red, limpiar el cooldown de inmediato
+    clearBackendUnreachable();
   } catch (netErr: any) {
+    // Marcar como no alcanzable durante 30s tras un error de red o timeout
+    markBackendUnreachable(30000);
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new ApiError(0, 'Sin conexión a internet (modo offline del dispositivo).');
+    }
+
     const isTimeout = netErr.name === 'TimeoutError' || (netErr.message && netErr.message.includes('timeout'));
-    const msg = isTimeout
-      ? `Tiempo de espera agotado conectando con el servidor (${url}). La laptop o Tailscale podrían estar apagados.`
-      : `No se pudo conectar con el servidor API (${url}): ${netErr.message || 'Error de conexión'}.`;
+    let msg: string;
+    if (isTimeout) {
+      if (timeoutMs >= 30000) {
+        msg = `Tiempo de espera agotado generando con IA (${Math.round(timeoutMs / 1000)}s). El servidor sigue procesando o la generación tardó demasiado.`;
+      } else {
+        msg = `Tiempo de espera agotado conectando con el servidor (${url}). La laptop o Tailscale podrían estar apagados.`;
+      }
+    } else {
+      msg = `No se pudo conectar con el servidor API (${url}): ${netErr.message || 'Error de conexión'}.`;
+    }
     throw new ApiError(0, msg);
   }
 
