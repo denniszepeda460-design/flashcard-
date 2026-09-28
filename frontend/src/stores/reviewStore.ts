@@ -1,7 +1,20 @@
 import { create } from 'zustand';
 import type { CardForReview } from '../api/types';
 import { fetchReviewQueue, answerCard } from '../api/review';
-import { cacheCards, getCachedCards, enqueuePendingReview, drainPendingReviews } from '../lib/db';
+import {
+  cacheCards,
+  getCachedCards,
+  enqueuePendingReview,
+  drainPendingReviews,
+  getPendingReviews,
+} from '../lib/db';
+import {
+  hasValidSessionForToday,
+  getTodaySession,
+  downloadTodaySession,
+  clearSession,
+  prepareOfflineCards,
+} from '../lib/offlineSession';
 
 interface ReviewState {
   cards: CardForReview[];
@@ -35,10 +48,20 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 
   syncPendingReviews: async () => {
     try {
-      const { synced } = await drainPendingReviews();
+      const { synced, remaining } = await drainPendingReviews();
       if (synced > 0) {
         set({ isSyncedBanner: true });
         setTimeout(() => set({ isSyncedBanner: false }), 4000);
+
+        // Si se completó el drenado de pendientes (remaining === 0),
+        // limpiar todaySession y preparar la sesión fresca para la próxima vez
+        if (remaining === 0) {
+          clearSession()
+            .then(() => downloadTodaySession())
+            .catch((err) =>
+              console.warn('[ReviewStore] Error actualizando todaySession tras sincronización:', err)
+            );
+        }
       }
     } catch (e) {
       console.warn('[ReviewStore] Error drenando pendientes al reconectar:', e);
@@ -65,11 +88,48 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         offlineReason: null,
         sessionStats: { correct: 0, incorrect: 0, total: queueCards.length },
       });
+
+      // Si no hay sesión válida para hoy, descargarla en segundo plano sin bloquear la UI
+      hasValidSessionForToday().then((hasValid) => {
+        if (!hasValid) {
+          downloadTodaySession().catch((err) =>
+            console.warn('[ReviewStore] Descarga automática de sesión en segundo plano falló:', err)
+          );
+        }
+      });
+
       // Try draining any existing pending reviews now that server is reachable
       get().syncPendingReviews();
     } catch (e: any) {
       console.warn('Network request failed, attempting to load from IndexedDB...', e);
       try {
+        // 1. Revisar primero si hay una todaySession válida para hoy
+        const hasSession = await hasValidSessionForToday();
+        if (hasSession) {
+          const session = await getTodaySession(deckId);
+          if (session && session.cards && session.cards.length > 0) {
+            // Excluir tarjetas que ya tengan un registro correspondiente en pendingReviews
+            const pending = await getPendingReviews();
+            const reviewedCardIds = new Set(pending.map((p) => p.cardId));
+            const availableCards = session.cards.filter((c) => !reviewedCardIds.has(c.card_id));
+
+            // Preparar tarjetas resolviendo URLs locales de Blobs multimedia
+            const preparedCards = await prepareOfflineCards(availableCards);
+
+            set({
+              cards: preparedCards,
+              currentIndex: 0,
+              originalTotal: preparedCards.length,
+              retriesQueued: 0,
+              isOfflineMode: true,
+              offlineReason: `Sesión offline descargada hoy a las ${session.timeStr || '08:00'}`,
+              sessionStats: { correct: 0, incorrect: 0, total: preparedCards.length },
+            });
+            return;
+          }
+        }
+
+        // 2. Fallback tradicional a getCachedCards si no hay todaySession
         const cached = await getCachedCards(deckId);
         const cachedCards = cached || [];
         set({

@@ -130,8 +130,8 @@ async function fetchWithRetry(path: string, options: RequestInit = {}, timeoutMs
   return res;
 }
 
-export async function get<T>(path: string): Promise<T> {
-  const res = await fetchWithRetry(path, { method: 'GET' });
+export async function get<T>(path: string, timeoutMs?: number): Promise<T> {
+  const res = await fetchWithRetry(path, { method: 'GET' }, timeoutMs);
   return res.json();
 }
 

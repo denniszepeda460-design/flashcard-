@@ -7,6 +7,7 @@ import { fetchDecks, createDeck } from '../api/decks';
 import { fetchTodayStats } from '../api/stats';
 import { DeckInfo, TodayStats } from '../api/types';
 import { cacheDecks, getCachedDecks } from '../lib/db';
+import { hasValidSessionForToday, downloadTodaySession } from '../lib/offlineSession';
 import { StudyCalendar } from '../components/deck/StudyCalendar';
 import { DeckCharts } from '../components/deck/DeckCharts';
 import { CsvImportModal } from '../components/deck/CsvImportModal';
@@ -47,6 +48,15 @@ export default function Home() {
       const freshDecks = await fetchDecks();
       setDecks(freshDecks);
       await cacheDecks(freshDecks);
+
+      // Descargar sesión completa para hoy en segundo plano si aún no se tiene
+      hasValidSessionForToday().then((valid) => {
+        if (!valid) {
+          downloadTodaySession().catch((err) =>
+            console.warn('[Home] Descarga automática de todaySession en segundo plano falló:', err)
+          );
+        }
+      });
     } catch (err) {
       console.warn('Servidor inaccesible, cargando mazos desde IndexedDB...', err);
       try {

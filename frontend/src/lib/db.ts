@@ -9,6 +9,21 @@ export interface PendingReview {
   timestamp: number;
 }
 
+export interface TodaySessionData {
+  date: string;
+  timestamp: number;
+  timeStr: string;
+  cards: CardForReview[];
+  media: string[];
+}
+
+export interface CachedMediaItem {
+  filename: string;
+  blob: Blob;
+  mimeType: string;
+  cachedAt: number;
+}
+
 interface FlashcardDB extends DBSchema {
   decks: {
     key: number;
@@ -27,13 +42,21 @@ interface FlashcardDB extends DBSchema {
     key: string;
     value: any;
   };
+  todaySession: {
+    key: string;
+    value: TodaySessionData;
+  };
+  mediaCache: {
+    key: string;
+    value: CachedMediaItem;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<FlashcardDB>> | null = null;
 
 export function openDB() {
   if (!dbPromise) {
-    dbPromise = idbOpenDB<FlashcardDB>('flashcard-offline', 3, {
+    dbPromise = idbOpenDB<FlashcardDB>('flashcard-offline', 4, {
       upgrade(db, oldVersion) {
         if (oldVersion < 2) {
           if (db.objectStoreNames.contains('decks')) db.deleteObjectStore('decks');
@@ -48,6 +71,14 @@ export function openDB() {
           }
           db.createObjectStore('pendingReviews', { keyPath: 'id', autoIncrement: true });
         }
+        if (oldVersion < 4) {
+          if (!db.objectStoreNames.contains('todaySession')) {
+            db.createObjectStore('todaySession');
+          }
+          if (!db.objectStoreNames.contains('mediaCache')) {
+            db.createObjectStore('mediaCache', { keyPath: 'filename' });
+          }
+        }
         if (!db.objectStoreNames.contains('decks')) {
           db.createObjectStore('decks', { keyPath: 'id' });
         }
@@ -60,6 +91,12 @@ export function openDB() {
         }
         if (!db.objectStoreNames.contains('syncMeta')) {
           db.createObjectStore('syncMeta');
+        }
+        if (!db.objectStoreNames.contains('todaySession')) {
+          db.createObjectStore('todaySession');
+        }
+        if (!db.objectStoreNames.contains('mediaCache')) {
+          db.createObjectStore('mediaCache', { keyPath: 'filename' });
         }
       },
     });
@@ -156,4 +193,43 @@ export async function setSyncMeta(meta: any) {
 export async function getSyncMeta() {
   const db = await openDB();
   return db.get('syncMeta', 'meta');
+}
+
+// Helpers para todaySession
+export async function saveTodaySession(data: TodaySessionData): Promise<void> {
+  const db = await openDB();
+  // Guardar tanto por clave de fecha como por clave 'latest' para fácil acceso
+  await db.put('todaySession', data, data.date);
+  await db.put('todaySession', data, 'latest');
+}
+
+export async function getTodaySessionFromDB(dateKey: string): Promise<TodaySessionData | undefined> {
+  const db = await openDB();
+  return db.get('todaySession', dateKey);
+}
+
+export async function clearTodaySessionDB(): Promise<void> {
+  const db = await openDB();
+  await db.clear('todaySession');
+}
+
+// Helpers para mediaCache
+export async function saveCachedMedia(filename: string, blob: Blob): Promise<void> {
+  const db = await openDB();
+  await db.put('mediaCache', {
+    filename,
+    blob,
+    mimeType: blob.type || 'application/octet-stream',
+    cachedAt: Date.now(),
+  });
+}
+
+export async function getCachedMedia(filename: string): Promise<CachedMediaItem | undefined> {
+  const db = await openDB();
+  return db.get('mediaCache', filename);
+}
+
+export async function clearMediaCacheDB(): Promise<void> {
+  const db = await openDB();
+  await db.clear('mediaCache');
 }

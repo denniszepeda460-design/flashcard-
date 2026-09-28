@@ -39,11 +39,20 @@ export interface CardForReview {
   fields: Record<string, string>;
   template_idx: number;
   scheduling_states?: Record<string, string>;
+  question_html?: string;
+  answer_html?: string;
 }
 
 export interface ReviewQueueResponse {
   cards: CardForReview[];
   remaining: number;
+}
+
+export interface FullReviewSessionResponse {
+  cards: CardForReview[];
+  remaining: number;
+  media: string[];
+  date: string;
 }
 
 export interface AnswerRequest {

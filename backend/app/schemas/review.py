@@ -9,10 +9,18 @@ class CardForReview(BaseModel):
     fields: Dict[str, str]
     template_idx: int
     scheduling_states: Dict[str, str] = {}
+    question_html: Optional[str] = None
+    answer_html: Optional[str] = None
 
 class ReviewQueueResponse(BaseModel):
     cards: List[CardForReview]
     remaining: int
+
+class FullReviewSessionResponse(BaseModel):
+    cards: List[CardForReview]
+    remaining: int
+    media: List[str]
+    date: str
 
 class AnswerRequest(BaseModel):
     card_id: int

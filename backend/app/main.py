@@ -7,7 +7,7 @@ from app.collection_manager import CollectionManager
 from app.middleware.auth import APIKeyAuthMiddleware
 from app.services.sync_service import SyncService
 
-from app.routers import decks, notetypes, notes, cards, review, sync, stats, ai, tts
+from app.routers import decks, notetypes, notes, cards, review, sync, stats, ai, tts, media
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -76,6 +76,7 @@ app.include_router(sync.router)
 app.include_router(stats.router)
 app.include_router(ai.router)
 app.include_router(tts.router)
+app.include_router(media.router)
 
 @app.get("/api/health")
 async def health_check():
